@@ -1,0 +1,444 @@
+i2cset -y 1 0x27 0x00 0x00
+i2cset -y 1 0x27 0x01 0x00  #definiuję GPB jako wyjście
+i2cset -y 1 0x27 0x15 0xff  #GPB wszystkie wyjścia ON
+
+i2cset -y 1 0x27 0x00 0xFF #definiuję GPA jako wejście
+i2cset -y 1 0x23 0x00 0xFF
+i2cget -y 1 0x23 0x12      #czyta stan wejsc
+
+#################
+i2cdetect -y 1
+
+
+
+
+###############################################
+
+disable the I2C driver with
+sudo rmmod i2c_dev
+sudo rmmod i2c_bcm2708
+
+re-enable it with
+sudo modprobe i2c_bcm2708
+sudo modprobe i2c_dev
+
+
+##############################################
+
+sudo nano /boot/config.txt
+
+dtparam=i2c_arm=on
+dtparam=i2c_baudrate=100000
+#dtparam=i2s=on
+#dtparam=spi=on
+
+
+
+
+i2cget -y 1 0x25 0x15 
+i2cget -y 1 0x25 0x14 
+i2cget -y 1 0x23 0x15 
+i2cget -y 1 0x23 0x14 
+
+
+
+#####################################
+
+PYTHON
+
+#####################################
+
+import smbus
+from time import sleep, time
+
+i2c=smbus.SMBus(1)
+
+i2c.read_byte_data(0x25, 0x15)
+
+i2c.write_byte_data( 0x25, 0x15, 0x01)
+
+i2c.write_byte_data( 0x25, 0x01, 0x00 )
+
+
+while 1:
+   min1=i2c.read_byte_data( 0x23, 0x12 )
+   min2=i2c.read_byte_data( 0x25, 0x12 )
+   min1=i2c.read_byte_data( 0x23, 0x13 )
+   print('entered %d %d      \r' %(min1, min2), end="")
+
+
+def f_r():
+     while 1:
+             min1=i2c.read_byte_data( 0x23, 0x12 )
+             min2=i2c.read_byte_data( 0x23, 0x13 )
+             print('entered %d %d      \r' %(min1, min2), end="")
+             sleep(0.1)
+
+>>> f_r()
+
+
+##############################################
+#!/usr/bin/python3
+# -*- coding: UTF-8 -*-
+
+
+import smbus
+from time import sleep, time, perf_counter
+from gpiozero import LED, Button
+from signal import pause
+
+from queue import Queue
+from threading import Thread, Event
+import configparser
+
+
+#from random import randint, choice
+
+i2c=tuple((None,smbus.SMBus(1))) #for future adding more i2c buses. Bus 0 is possible but here is empy.
+#i2c=smbus.SMBus(1)
+
+i2c[1].write_byte_data( 0x25, 0x0C, 0x00 ) #set pull ups
+i2c[1].write_byte_data( 0x25, 0x0D, 0x00 )
+i2c[1].write_byte_data( 0x23, 0x0C, 0x80 )
+i2c[1].write_byte_data( 0x23, 0x0D, 0x03 )
+
+i2c[1].write_byte_data( 0x25, 0x00, 0x00 ) #set A if inputs (1 in 0 out)
+i2c[1].write_byte_data( 0x25, 0x14, 0xFE )#opens all A
+i2c[1].read_byte_data( 0x25, 0x12 )
+
+i2c[1].write_byte_data( 0x25, 0x01, 0x00 )
+i2c[1].write_byte_data( 0x25, 0x15, 0xFF )
+i2c[1].read_byte_data( 0x25, 0x13 )
+
+i2c[1].write_byte_data( 0x23, 0x00, 0x80 )
+i2c[1].write_byte_data( 0x23, 0x14, 0x00 )
+i2c[1].read_byte_data( 0x23, 0x12 )
+
+i2c[1].write_byte_data( 0x23, 0x01, 0x03 )
+i2c[1].write_byte_data( 0x23, 0x15, 0x00  )
+i2c[1].read_byte_data( 0x23, 0x13 )
+
+
+
+i2c[1].read_byte_data( 0x25, 0x00 )   #check in/out
+i2c[1].read_byte_data( 0x25, 0x01 )
+i2c[1].read_byte_data( 0x23, 0x00 )
+i2c[1].read_byte_data( 0x23, 0x01 )
+
+
+
+i2c[1].read_byte_data( 0x23, 0x13 )   #reading inputs to clear
+i2c[1].read_byte_data( 0x23, 0x12 )
+
+i2c[1].write_byte_data( 0x23, 0x05, 0x03 )    #set the button pressed to couse interrupt
+i2c[1].write_byte_data( 0x23, 0x04, 0x80 )      #for all inputs
+
+i2c[1].write_byte_data( 0x23, 0x09, 0x03 )    #set trigger on compare to DEFVAL
+i2c[1].write_byte_data( 0x23, 0x08, 0x80 )      #for all inputs
+
+i2c[1].write_byte_data( 0x23, 0x09, 0x0 )    #set trigger on change
+i2c[1].write_byte_data( 0x23, 0x08, 0x0 ) 
+
+
+i2c[1].write_byte_data( 0x23, 0x07, 0x03 )    #set  DEFVAL
+i2c[1].write_byte_data( 0x23, 0x06, 0x80 ) 
+
+int1=Button("BOARD31")   #interuppt signal to RPi GPIO
+
+t1=0.2
+Work=1
+
+
+def rbut(PbutQ):                                #reading the interupt signal from MCP chip
+#   while Work:
+   for i in range(0,1000):            #<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+#      con=input('press buttons: ')                #<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+      Aflag=i2c[1].read_byte_data( 0x23, 0x0e )    #reads event flags
+      Bflag=i2c[1].read_byte_data( 0x23, 0x0f )
+                                 #przy czasie 0.2 jest w stanie skasować event
+      Ainput=i2c[1].read_byte_data( 0x23, 0x12 )   #  reads inputs
+      Binput=i2c[1].read_byte_data( 0x23, 0x13 )
+#      tm1=int1.held_time
+#      print (" Aflag %d   Ainput %d  Bflag %d  Binput %d " % (Aflag,  Ainput, Bflag, Binput))
+#      print (tm1)
+      butevnt=Event()   "####################chyba w złym miejscu"
+      PbutQ.put(([Aflag, Bflag, Ainput,Binput], butevnt))
+      butevnt.wait()
+      sleep(t1)
+   PbutQ.put(([999, Bflag, Ainput,Binput], butevnt))
+
+
+def DoAction(RbutQ):
+   Runflg=1
+   speed=perf_counter()
+   while Runflg:
+      
+      Flgs, butevnt  = RbutQ.get() 
+      print ("#######################################")
+      print (Flgs[0], Flgs[2], Flgs[1], Flgs[3], perf_counter()-speed)
+      print ("#######################################")
+      Runflg = (Flgs[0] != 999)
+      speed=perf_counter()
+      butevnt.set()
+   butevnt.set()
+
+def main():
+   butQ = Queue()
+   but_th1=Thread(target=rbut, args=(butQ,))
+   but_th2=Thread(target=DoAction, args=(butQ,))
+   but_th1.start()
+   but_th2.start()
+   but_th1.join()
+   but_th2.join()
+
+if __name__ == "__main__":
+   print("START")
+   main()
+   print("END")
+
+
+################################################3
+
+#i2cbus, i2c_addres
+
+export PYTHONPATH="/home/pi/Python"
+
+
+
+#from gpiozero import LED, Button
+#from signal import pause
+
+from queue import Queue
+from threading import Thread, Event
+
+
+global i2c #test
+i2c=tuple((None,smbus.SMBus(1))) #test
+
+
+
+
+
+
+
+import smbus
+import configparser
+import threading
+from time import sleep, time, perf_counter
+from red_diode_clases import MCP, Relay, Butt, VButt, MovDetected
+from red_diode_procedures import seq_2, seq_1, seq_3, seq_4, seq_5, seq_6 ,seq_7, seq_8, v_pres, mov_detected
+from red_diode_procedures import read_config, read_config_chip, Out_map, In_map, tog, r, all_off, MCP_reading_thread, main, Out_map, In_map, mov_detected, v_pres, Send_alarm
+read_config()
+
+
+read_config_chip()
+In_map()
+
+
+
+for key in MCP.MCP_instnc:
+   mc=MCP.MCP_instnc[key]
+   print(key, mc.name, hex(mc.bus_adrs) )
+
+
+for key in Relay.Relay_instn:
+   o=Relay.Relay_instn[key]
+   print(key, o.chip,o.pin, o.relay, o.name,o.is_PWM, o.REV )
+
+for key in Butt.Butt_instn:
+   b=Butt.Butt_instn[key]
+   print(key, b.chip, b.pin, b.name, b. call, b.is_con, b.is_mov, b.action1, b.action2)
+
+
+c=MCP.MCP_instnc['c_B1_22']
+for i in range (0,16): 
+   print(c.is_output(i))
+
+   print(c.is_output(16))
+
+c.read_chip('INTF'); c.read_chip('GPIO');c.read_chip('INTCAP')
+
+
+Relay.Relay_instn['kuch1'].on()
+Relay.Relay_instn['stojaca'].on()
+
+
+##############################################################
+reading buttons
+###############
+
+
+
+for ip in c.inputs:
+...     try: c.inputs[ (ip & 0x3000)].short_push()
+...     except: pass
+
+#########################################################
+
+
+def tog():
+   for key in MCP.MCP_instnc.keys():
+      c=MCP.MCP_instnc[key]
+      for i in c.GpioAdr_dic: 
+         if c.is_output(i): print(c.togle_output(i), c, i),sleep(0.1)
+   
+for key in MCP.MCP_instnc.keys():
+   c=MCP.MCP_instnc[key]
+   for i in c.GpioAdr_dic: 
+      if c.is_output(i): print(c.set_output_on(i), c, i)
+
+for key in MCP.MCP_instnc.keys():
+   c=MCP.MCP_instnc[key]
+   for i in c.GpioAdr_dic: 
+      if c.is_output(i): print(c.set_output_off(i), c, i)
+
+
+c=MCP.MCP_instnc['c_B1_22']
+while 1:
+   INTF,GPIO,INTCAP = c.read_chip('INTF'), c.read_chip('GPIO'), c.read_chip('INTCAP')
+   if  (INTF or GPIO or INTCAP ): print ('{:>5} {:>5} {:>5} '.format(INTF,GPIO,INTCAP))
+   sleep(0.2)
+
+c.read_chip('GPPU')
+c.read_chip('IODIR')
+c.read_chip('OLAT')
+c.read_chip('GPIO')
+c.read_chip('IPOL')
+c.read_chip('GPINTEN')
+c.read_chip('INTCON')
+c.read_chip('DEFVAL')
+c.read_chip('INTF')
+c.read_chip('INTCAP')
+
+
+while 1:
+   for key in MCP.MCP_instnc.keys():
+      c=MCP.MCP_instnc[key]
+      print(c, c.read_chip('INTF'), ' ' ,c.read_chip('GPIO'), c.read_chip('IPOL'))
+      sleep(0.2)
+
+
+def r():
+   for key in MCP.MCP_instnc.keys():
+      c=MCP.MCP_instnc[key]
+      print(c)
+      print(c.read_chip('IODIR'), c.read_chip('IPOL'),c.read_chip('GPIO'))
+      print(end='\n\n\n')
+
+def k():
+   for key in Relay.Relay_instn.keys():
+      c=Relay.Relay_instn[key]
+      print('%s connected to Relay: %s on chip: %s pin: %d is PWM: %s' % (c.name, c.relay, c.chip, c.pin, c.is_PWM))
+
+def b():
+   for key in Butt.Butt_instn.keys():
+      c=Butt.Butt_instn[key]
+      print('%s connected to Chip: %s pin: %d Calling: %r is ReverseLogic: %s' % (c.name, c.chip, c.pin, c.call, c.rev_log))
+ 
+scp -P2420 -i  ~/.ssh/PiMain andrzej@192.168.88.66:/home/andrzej/raspberyPi/python_wip/red_diode_clases.py /home/pi/Python
+
+scp -P2420 -i  ~/.ssh/PiMain andrzej@192.168.88.66:/home/andrzej/raspberyPi/python_wip/red_diode.cfg /home/pi/Python
+
+
+##############################
+PROJEKT
+#############################
+
+button: 
+
+adres pod którym jest podłączony MCP_dev+GPIO
+pstryk.krotki 
+stryk.dlugi
+
+
+
+###############################
+
+################################################
+
+
+read_i2c_block_data(i2c_addr,register,length,force=None) 
+
+
+
+
+from https://www.engineersgarage.com/articles-raspberry-pi-i2c-bus-pins-smbus-smbus2-python/
+
+
+
+The smBus2 library has two classes – SMBus and i2c_msg. The SMBus class supports the following methods:
+smbus.SMBus()/smbus2.SMBus() – To create an SMBus object in Python script.
+
+open(bus) – To open a given i2c bus.
+close() – To close I2C connection.
+
+The serial data from an I2C slave can be read in bytes, words or block of bytes. In some I2C slave devices, master need to access serial data from specific registers. The following methods are available in SMBus2 library for reading serial I2C data from slave devices:
+read_byte(i2c_addr,force=None) – To read a single byte from a device.
+read_byte_data(i2c_addr,register,force=None) – To read a single byte from a designated register.
+read_block_data(i2c_addr,register,force=None) – To read a block of up to 32-bytes from a given register.
+read_i2c_block_data(i2c_addr,register,length,force=None) – To read a block of byte data from a given register.
+read_word_data(i2c_addr,register,force=None) – To read a single word (2 bytes) from a given register.
+
+Similarly, data can be written to I2C slaves in bytes, words or block of bytes. In some I2C slave devices, data must be written to specific registers. The following methods are available in SMBus2 library for writing serial I2C data from slave devices:
+write_byte(i2c_addr,value,force=None) – To write a single byte to a device.
+write_byte_data(i2c_addr,register,value,force=None) – To write a byte to a given register.
+write_block_data(i2c_addr,register,data,force=None) – To write a block of byte data to a given register.
+write_i2c_block_data(i2c_addr,register,data,force=None) – To write a block of byte data to a given register.
+write_word_data(i2c_addr,register,value,force=None) – To write a byte to a given register.
+write_quick(i2c_addr,force=None) – To perform quick transaction. Throws IOError if unsuccessful.
+
+The following methods are available for managing SMBus processes and to combine I2C bus read/write operations:
+process_call(i2c_addr,register,value,force=None) – To execute a SMBus Process Call, sending a 16-bit value and receiving a 16-bit response
+block_process_call(i2c_addr,register,data,force=None) – To send a variable-size data block and receiving another variable-size response.
+i2c_rdwr(*i2c_msgs) – To combine a series of i2c read and write operations in a single transaction.
+
+
+
+########################################################
+$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$
+
+outputs on Relay
+
+kuch1 connected to Relay: a7 on chip: c_B1_20 pin: 3 is PWM: False
+kuch2 connected to Relay: a5 on chip: c_B1_20 pin: 4 is PWM: False
+kuch3 connected to Relay: a6 on chip: c_B1_20 pin: 6 is PWM: False
+pokA1 connected to Relay: a8 on chip: c_B1_20 pin: 7 is PWM: False
+pokA2 connected to Relay: a3 on chip: c_B1_22 pin: 6 is PWM: False
+pokB1 connected to Relay: a1 on chip: c_B1_22 pin: 7 is PWM: False
+pokB2 connected to Relay: a10 on chip: c_B1_23 pin: 6 is PWM: False
+pokC1 connected to Relay: a12 on chip: c_B1_23 pin: 7 is PWM: False
+pokC2 connected to Relay: a13 on chip: c_B1_24 pin: 0 is PWM: False
+pokC3 connected to Relay: a15 on chip: c_B1_24 pin: 1 is PWM: False
+pomT connected to Relay: a11 on chip: c_B1_25 pin: 0 is PWM: False
+pomR connected to Relay: a9 on chip: c_B1_25 pin: 1 is PWM: False
+zew1 connected to Relay: a2 on chip: c_B1_26 pin: 0 is PWM: False
+zew2 connected to Relay: a4 on chip: c_B1_26 pin: 1 is PWM: False
+stojaca connected to Relay: a16 on chip: c_B1_27 pin: 1 is PWM: False
+lampa_w_dachu connected to Relay: a14 on chip: c_B1_27 pin: 2 is PWM: True
+
+
+buttons
+
+kuch connected to Chip: c_B1_21 pin: 15 Calling: ['kuch1', 'kuch2', 'kuch3'] is ReverseLogic: False
+pokA connected to Chip: c_B1_21 pin: 14 Calling: ['pokA1', 'pokA2'] is ReverseLogic: False
+pokB connected to Chip: c_B1_21 pin: 13 Calling: ['pokB1', 'pokB2'] is ReverseLogic: False
+pokC connected to Chip: c_B1_21 pin: 12 Calling: ['pokC1', 'pokC2', 'pokC3'] is ReverseLogic: False
+pomT connected to Chip: c_B1_21 pin: 11 Calling: ['pomT'] is ReverseLogic: False
+pomR connected to Chip: c_B1_21 pin: 10 Calling: ['pomR'] is ReverseLogic: False
+zew1 connected to Chip: c_B1_21 pin: 9 Calling: ['zew1', 'zew2'] is ReverseLogic: False
+zew2 connected to Chip: c_B1_21 pin: 8 Calling: ['zew2'] is ReverseLogic: False
+stojaca connected to Chip: c_B1_23 pin: 15 Calling: ['stojaca'] is ReverseLogic: False
+function_1 connected to Chip: c_B1_23 pin: 14 Calling: ['f_function_1'] is ReverseLogic: False
+okno1 connected to Chip: c_B1_23 pin: 13 Calling: ['okno1'] is ReverseLogic: True
+okno2 connected to Chip: c_B1_23 pin: 8 Calling: ['okno2'] is ReverseLogic: True
+
+
+
+##########
+Relay.Relay_instn['kuch1'].on()
+Relay.Relay_instn['kuch1'].off()
+
+
+
+
+
