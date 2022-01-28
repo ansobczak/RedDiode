@@ -333,7 +333,7 @@ def k():
 def b():
    for key in Butt.Butt_instn.keys():
       c=Butt.Butt_instn[key]
-      print('%s connected to Chip: %s pin: %d Calling: %r is ReverseLogic: %s' % (c.name, c.chip, c.pin, c.call, c.rev_log))
+      print('%s connected to: %s pin: %d Calling: %r is ReverseLogic: %s' % (c.name, c.chip, c.pin, c.call, c.rev_log))
  
 scp -P2420 -i  ~/.ssh/PiMain andrzej@192.168.88.66:/home/andrzej/raspberyPi/python_wip/red_diode_clases.py /home/pi/Python
 
